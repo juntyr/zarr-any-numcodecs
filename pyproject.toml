@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zarr-any-numcodecs"
-version = "0.1.0"
+version = "0.1.1"
 description = "Adapt any `numcodecs.abc.Codec` into a `zarr.abc.Codec`"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
-    "numcodecs>=0.14.0,<0.16",
+    "numcodecs>=0.14.0,<0.17",
     "zarr~=3.0",
 ]
 
