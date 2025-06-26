@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Self, ClassVar
 
 import numcodecs.registry
+import numpy as np
 import zarr.registry
 from numcodecs.abc import Codec
 from zarr.abc.codec import ArrayArrayCodec, ArrayBytesCodec, BytesBytesCodec, BaseCodec
@@ -73,6 +74,8 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
         The codec to wrap.
     """
 
+    __slots__ = ()
+
     codec_name: ClassVar[str] = "any-numcodecs.array-array"
 
     def resolve_metadata(self, chunk_spec: ArraySpec) -> ArraySpec:
@@ -80,7 +83,7 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
             shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=1
         )
         encoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(
-            self.codec.encode(dummy_data.as_ndarray_like())
+            self.codec.encode(_ChunkedNdArray(dummy_data.as_ndarray_like()))
         )
         return ArraySpec(
             encoded.shape, encoded.dtype, 0, chunk_spec.config, chunk_spec.prototype
@@ -90,7 +93,7 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
         self, chunk_array: NDBuffer, chunk_spec: ArraySpec
     ) -> NDBuffer:
         chunk_ndarray = chunk_array.as_ndarray_like()
-        out = await asyncio.to_thread(self.codec.encode, chunk_ndarray)
+        out = await asyncio.to_thread(self.codec.encode, _ChunkedNdArray(chunk_ndarray))
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(out)
 
     async def _decode_single(
@@ -100,10 +103,12 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
         empty = chunk_spec.prototype.nd_buffer.create(
             shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=0
         ).as_ndarray_like()
-        out = await asyncio.to_thread(self.codec.decode, chunk_ndarray, out=empty)
+        out = await asyncio.to_thread(
+            self.codec.decode, chunk_ndarray, out=_ChunkedNdArray(empty)
+        )
         decoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(out).as_numpy_array()
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(
-            decoded.view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
+            decoded.view(np.ndarray).view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
         )
 
 
@@ -120,13 +125,15 @@ class AnyNumcodecsArrayBytesCodec(_AnyNumcodecsCodec, ArrayBytesCodec):
         The codec to wrap.
     """
 
+    __slots__ = ()
+
     codec_name: ClassVar[str] = "any-numcodecs.array-bytes"
 
     async def _encode_single(
         self, chunk_array: NDBuffer, chunk_spec: ArraySpec
     ) -> Buffer:
         chunk_ndarray = chunk_array.as_ndarray_like()
-        out = await asyncio.to_thread(self.codec.encode, chunk_ndarray)
+        out = await asyncio.to_thread(self.codec.encode, _ChunkedNdArray(chunk_ndarray))
         return chunk_spec.prototype.buffer.from_bytes(out)
 
     async def _decode_single(
@@ -136,11 +143,11 @@ class AnyNumcodecsArrayBytesCodec(_AnyNumcodecsCodec, ArrayBytesCodec):
             shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=0
         ).as_ndarray_like()
         out = await asyncio.to_thread(
-            self.codec.decode, chunk_array.as_array_like(), out=empty
+            self.codec.decode, chunk_array.as_array_like(), out=_ChunkedNdArray(empty)
         )
         decoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(out).as_numpy_array()
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(
-            decoded.view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
+            decoded.view(np.ndarray).view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
         )
 
 
@@ -156,6 +163,8 @@ class AnyNumcodecsBytesBytesCodec(_AnyNumcodecsCodec, BytesBytesCodec):
     codec : Codec
         The codec to wrap.
     """
+
+    __slots__ = ()
 
     codec_name: ClassVar[str] = "any-numcodecs.bytes-bytes"
 
@@ -181,3 +190,14 @@ zarr.registry.register_codec(
 zarr.registry.register_codec(
     AnyNumcodecsBytesBytesCodec.codec_name, AnyNumcodecsBytesBytesCodec
 )
+
+
+class _ChunkedNdArray(np.ndarray):
+    __slots__ = ()
+
+    def __new__(cls, array):
+        return np.asarray(array).view(cls)
+
+    @property
+    def chunked(self) -> bool:
+        return True

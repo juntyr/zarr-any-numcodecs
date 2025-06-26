@@ -79,6 +79,45 @@ def test_weird_bytes():
         assert np.all(np.asarray(a) == data)
 
 
+def test_chunked_encode_decode():
+    data = np.array([1.0, 2.0, 3.0])
+
+    store = zarr.storage.MemoryStore()
+    zarr.save_array(
+        store,
+        data,
+        codecs=[
+            dict(
+                name="any-numcodecs.array-array",
+                configuration=dict(id="check-is-chunked"),
+            ),
+            dict(
+                name="any-numcodecs.array-bytes",
+                configuration=dict(id="as-bytes"),
+            ),
+        ],
+    )
+    a = zarr.open_array(store)
+    assert np.all(np.asarray(a) == data)
+
+    store = zarr.storage.MemoryStore()
+    zarr.save_array(
+        store,
+        data,
+        codecs=[
+            dict(
+                name="any-numcodecs.array-bytes",
+                configuration=dict(
+                    id="combinators.stack",
+                    codecs=[dict(id="check-is-chunked"), dict(id="as-bytes")],
+                ),
+            ),
+        ],
+    )
+    a = zarr.open_array(store)
+    assert np.all(np.asarray(a) == data)
+
+
 class AsBytesU8Codec(Codec):
     codec_id = "as-bytes-u8"
 
@@ -105,5 +144,21 @@ class AsBytesCodec(Codec):
         return numcodecs.compat.ndarray_copy(decoded, out)
 
 
+class CheckChunkedCodec(Codec):
+    __slots__ = ()
+
+    codec_id = "check-is-chunked"
+
+    def encode(self, buf):
+        assert getattr(buf, "chunked", False)
+        return buf
+
+    def decode(self, buf, out=None):
+        assert getattr(buf, "chunked", False) is False
+        assert (out is None) or getattr(out, "chunked", False)
+        return numcodecs.compat.ndarray_copy(buf, out)
+
+
 numcodecs.registry.register_codec(AsBytesCodec)
 numcodecs.registry.register_codec(AsBytesU8Codec)
+numcodecs.registry.register_codec(CheckChunkedCodec)

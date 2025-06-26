@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zarr-any-numcodecs"
-version = "0.1.1"
+version = "0.1.2"
 description = "Adapt any `numcodecs.abc.Codec` into a `zarr.abc.Codec`"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy~=1.14", "pytest~=8.3"]
+dev = ["mypy~=1.14", "pytest~=8.3", "numcodecs-combinators~=0.2.9"]
 
 [project.entry-points."zarr.codecs"]
 "any-numcodecs.array-array" = "zarr_any_numcodecs:AnyNumcodecsArrayArrayCodec"
