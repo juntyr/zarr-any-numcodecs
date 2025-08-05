@@ -33,6 +33,7 @@ from zarr.abc.codec import ArrayArrayCodec, ArrayBytesCodec, BytesBytesCodec, Ba
 from zarr.core.array_spec import ArraySpec
 from zarr.core.buffer import NDBuffer, Buffer
 from zarr.core.common import JSON, parse_named_configuration
+from zarr.core.dtype import ZDType, data_type_registry as zarr_dtype_registry
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,13 +81,21 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
 
     def resolve_metadata(self, chunk_spec: ArraySpec) -> ArraySpec:
         dummy_data = chunk_spec.prototype.nd_buffer.create(
-            shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=1
+            shape=chunk_spec.shape,
+            dtype=_zarr_dtype_to_numpy_dtype(chunk_spec.dtype),
+            fill_value=1,
         )
         encoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(
             self.codec.encode(_ChunkedNdArray(dummy_data.as_ndarray_like()))
         )
         return ArraySpec(
-            encoded.shape, encoded.dtype, 0, chunk_spec.config, chunk_spec.prototype
+            encoded.shape,
+            encoded.dtype
+            if isinstance(chunk_spec.dtype, np.dtype)
+            else _numpy_dtype_to_zarr_dtype(encoded.dtype),
+            0,
+            chunk_spec.config,
+            chunk_spec.prototype,
         )
 
     async def _encode_single(
@@ -101,14 +110,18 @@ class AnyNumcodecsArrayArrayCodec(_AnyNumcodecsCodec, ArrayArrayCodec):
     ) -> NDBuffer:
         chunk_ndarray = chunk_array.as_ndarray_like()
         empty = chunk_spec.prototype.nd_buffer.create(
-            shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=0
+            shape=chunk_spec.shape,
+            dtype=_zarr_dtype_to_numpy_dtype(chunk_spec.dtype),
+            fill_value=0,
         ).as_ndarray_like()
         out = await asyncio.to_thread(
             self.codec.decode, chunk_ndarray, out=_ChunkedNdArray(empty)
         )
         decoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(out).as_numpy_array()
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(
-            decoded.view(np.ndarray).view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
+            decoded.view(np.ndarray)
+            .view(_zarr_dtype_to_numpy_dtype(chunk_spec.dtype))
+            .reshape(chunk_spec.shape)  # type: ignore
         )
 
 
@@ -140,14 +153,18 @@ class AnyNumcodecsArrayBytesCodec(_AnyNumcodecsCodec, ArrayBytesCodec):
         self, chunk_array: Buffer, chunk_spec: ArraySpec
     ) -> NDBuffer:
         empty = chunk_spec.prototype.nd_buffer.create(
-            shape=chunk_spec.shape, dtype=chunk_spec.dtype, fill_value=0
+            shape=chunk_spec.shape,
+            dtype=_zarr_dtype_to_numpy_dtype(chunk_spec.dtype),
+            fill_value=0,
         ).as_ndarray_like()
         out = await asyncio.to_thread(
             self.codec.decode, chunk_array.as_array_like(), out=_ChunkedNdArray(empty)
         )
         decoded = chunk_spec.prototype.nd_buffer.from_ndarray_like(out).as_numpy_array()
         return chunk_spec.prototype.nd_buffer.from_ndarray_like(
-            decoded.view(np.ndarray).view(chunk_spec.dtype).reshape(chunk_spec.shape)  # type: ignore
+            decoded.view(np.ndarray)
+            .view(_zarr_dtype_to_numpy_dtype(chunk_spec.dtype))
+            .reshape(chunk_spec.shape)  # type: ignore
         )
 
 
@@ -201,3 +218,15 @@ class _ChunkedNdArray(np.ndarray):
     @property
     def chunked(self) -> bool:
         return True
+
+
+def _zarr_dtype_to_numpy_dtype(dtype) -> np.dtype:
+    if isinstance(dtype, ZDType):
+        dtype = dtype.to_native_dtype()
+    if isinstance(dtype, np.dtype):
+        return dtype
+    raise TypeError(f"Cannot convert {dtype} to NumPy dtype")
+
+
+def _numpy_dtype_to_zarr_dtype(dtype: np.dtype) -> ZDType:
+    return zarr_dtype_registry.match_dtype(dtype=dtype)

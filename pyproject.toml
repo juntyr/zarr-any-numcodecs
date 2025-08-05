@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "zarr-any-numcodecs"
-version = "0.1.2"
+version = "0.1.3"
 description = "Adapt any `numcodecs.abc.Codec` into a `zarr.abc.Codec`"
 readme = "README.md"
 license = { file = "LICENSE" }
